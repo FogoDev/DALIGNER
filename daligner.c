@@ -62,6 +62,11 @@ int     SYMMETRIC;
 int     IDENTITY;
 uint64  MEM_LIMIT;
 uint64  MEM_PHYSICAL;
+int VALIDATE_KMERS = 0;
+unsigned* VALID_KMERS;
+unsigned long long* VALID_KMERS_LONG;
+size_t VALID_KMERS_SIZE = 0;
+size_t VALID_KMERS_COUNT = 0;
 
 /*  Adapted from code by David Robert Nadeau (http://NadeauSoftware.com) licensed under
  *     "Creative Commons Attribution 3.0 Unported License"
@@ -584,10 +589,56 @@ int main(int argc, char *argv[])
       exit (1);
 
     j    = 1;
+    
+    /************************************************************
+     *         Reading a binary file with valid Kmers:          *
+     ************************************************************
+     *      The first element is a size_t number, which is      *
+     *  the size of each Kmer, the second element is another    *
+     *  size_t number, with the total kmers count in the file   *
+     *  then the rest of the file's information are the kmers,  *
+     *  which depends on kmers size, if the size is 16 or       *
+     *  below, the each kmer is a unsigned, if the size is      *
+     *  between 17 and 32, each kmer is a unsigned long long    *
+     ************************************************************/
+     
+    for(i = 1; i < argc; i++)
+      if(strcmp("-f", argv[i]) == 0){
+        VALIDATE_KMERS = 1;
+        FILE* validKmersFile = fopen(argv[i+1], "r");
+        if(!validKmersFile){
+          fprintf(stderr, "Couldn't open valid kmers file: %s\n", argv[i+1]);
+          exit(1);
+        }
+        
+        fread(&VALID_KMERS_SIZE, sizeof(size_t), 1, validKmersFile);
+        fread(&VALID_KMERS_COUNT, sizeof(size_t), 1, validKmersFile);
+        
+        if(VALID_KMERS_SIZE <= 16){
+          VALID_KMERS = malloc(VALID_KMERS_COUNT * sizeof(unsigned));
+          if(!VALID_KMERS){
+            fprintf(stderr,"Error allocating memory for valid kmers");
+            exit(1);
+          }
+          fread(VALID_KMERS, sizeof(unsigned), VALID_KMERS_COUNT, validKmersFile);
+          VALID_KMERS_LONG = NULL;
+        } else {
+          VALID_KMERS_LONG = malloc(VALID_KMERS_COUNT * sizeof(unsigned long long));
+          if(!VALID_KMERS_LONG){
+            fprintf(stderr,"Error allocating memory for valid kmers");
+            exit(1);
+          }
+          fread(VALID_KMERS_LONG, sizeof(unsigned long long), VALID_KMERS_COUNT, validKmersFile);
+          VALID_KMERS = NULL;
+        }
+        fclose(validKmersFile);
+      }
+      
     for (i = 1; i < argc; i++)
       if (argv[i][0] == '-')
         switch (argv[i][1])
-        { default:
+        { case 'f': ++i; break; // Making the switch ignore -f flag and the valid kmer filename
+          default:
             ARG_FLAGS("vbAI")
             break;
           case 'k':
@@ -669,6 +720,12 @@ int main(int argc, char *argv[])
     { fprintf(stderr,"Illegal combination of filter parameters\n");
       exit (1);
     }
+    
+  // Checking if VALID_KMER_SIZE and KMER_LEN have the same value
+  if(VALID_KMERS_SIZE && KMER_LEN != VALID_KMERS_SIZE){
+    fprintf(stderr, "The Kmer length and Valid Kmers length doesn't match, Kmer length = %d; Valid Kmer length = %lu\n", KMER_LEN, VALID_KMERS_SIZE);
+    exit(1);
+  }
 
   /* Read in the reads in A */
 

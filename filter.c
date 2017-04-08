@@ -605,27 +605,48 @@ typedef struct
   { int  beg;
     int  end;
     int  kept;
+    int validBegin;
+    int validEnd;
   } Comp_Arg;
+
+int kmer_test(uint64 kmer, Comp_Arg* data, int* index)
+{
+  if(VALID_KMERS){
+      if(kmer > VALID_KMERS[*index]) {
+          while(*index <= data->validEnd && kmer > VALID_KMERS[*index++]);
+      }
+      if(kmer == VALID_KMERS[*index])
+          return 1;
+      return 0;
+  } else {
+      if(kmer > VALID_KMERS_LONG[*index]) {
+          while(*index <= data->validEnd && kmer > VALID_KMERS_LONG[*index++]);
+      }
+      if(kmer == VALID_KMERS_LONG[*index])
+          return 1;
+      return 0;
+  }
+}
 
 static void *compsize_thread(void *arg)
 { Comp_Arg   *data  = (Comp_Arg *) arg;
   int         end   = data->end;
   KmerPos    *src   = FR_src;
-  int         n, i, c, p;
+  int         n, i, c, p, valid_kmers_index;
   uint64      h, g;
 
   i = data->beg;
   h = src[i].code;
   n = 0;
+  valid_kmers_index = data->validBegin;
   while (i < end)
     { p = i++;
       while ((g = src[i].code) == h)
         i += 1;
-      if ((c = (i-p)) < TooFrequent)
+      if ((c = (i-p)) < TooFrequent && kmer_test(h, data, &valid_kmers_index))
         n += c;
       h = g;
     }
-
   data->kept = n;
   return (NULL);
 }
@@ -635,17 +656,18 @@ static void *compress_thread(void *arg)
   int         end   = data->end;
   KmerPos    *src   = FR_src;
   KmerPos    *trg   = FR_trg;
-  int         n, i, p;
+  int         n, i, p, valid_kmers_index;
   uint64      h, g;
 
   i = data->beg;
   h = src[i].code;
   n = data->kept;
+  valid_kmers_index = data->validBegin;
   while (i < end)
     { p = i++;
       while ((g = src[i].code) == h)
         i += 1;
-      if (i-p < TooFrequent)
+      if (i-p < TooFrequent && kmer_test(h, data, &valid_kmers_index))
         { while (p < i)
             trg[n++] = src[p++];
         }
@@ -662,7 +684,7 @@ void *Sort_Kmers(HITS_DB *block, int *len)
   Lex_Arg   parmx[NTHREADS];
   int       mersort[16];
 
-  KmerPos  *src, *trg, *rez;
+  KmerPos  *src, *trg, *rez, *validated;
   int       kmers, nreads;
   int       i, j, x, z;
   uint64    h;
@@ -752,14 +774,46 @@ void *Sort_Kmers(HITS_DB *block, int *len)
     { parmf[0].beg = 0;
       for (i = 1; i < NTHREADS; i++)
         { x = (((int64) i)*kmers) >> NSHIFT;
-          h = rez[x-1].code;
-          while (rez[x].code == h)
-            x += 1;
-          parmf[i-1].end = parmf[i].beg = x;
+            h = rez[x-1].code;
+            while (rez[x].code == h) {
+                x += 1;
+            }
+            parmf[i-1].end = parmf[i].beg = x;
         }
-      parmf[NTHREADS-1].end = kmers;
-
-      if (rez[kmers-1].code == 0xffffffffffffffffllu)
+        parmf[NTHREADS-1].end = kmers;
+    
+        if(VALIDATE_KMERS){
+            // Steps to calculate the indexes in the list of valid kmers
+            parmf[0].validBegin = 0;
+            if(VALID_KMERS){
+                for(i = 1; i < NTHREADS; i++){
+                    x = (((int64) i)* VALID_KMERS_COUNT) >> NSHIFT;
+                    h = rez[parmf[i-1].end].code;
+                    if(h < VALID_KMERS[x]) {
+                        while(h < VALID_KMERS[x--]);
+                    }
+                    if(h > VALID_KMERS[x]) {
+                        while(h > VALID_KMERS[x++]);
+                    }
+                    parmf[i-1].validEnd = parmf[i].validBegin = x;
+                }
+            } else {
+                for(i = 1; i < NTHREADS; i++){
+                    x = (((int64) i)* VALID_KMERS_COUNT) >> NSHIFT;
+                    h = rez[parmf[i-1].end].code;
+                    if(h < VALID_KMERS_LONG[x]) {
+                        while(h < VALID_KMERS_LONG[x--]);
+                    }
+                    if(h > VALID_KMERS_LONG[x]) {
+                        while(h > VALID_KMERS_LONG[x++]);
+                    }
+                    parmf[i-1].validEnd = parmf[i].validBegin = x;
+                }
+            }
+            parmf[NTHREADS-1].validEnd = VALID_KMERS_COUNT -1;
+        }
+    
+        if (rez[kmers-1].code == 0xffffffffffffffffllu)
         rez[kmers].code = 0;
       else
         rez[kmers].code = 0xffffffffffffffffllu;
@@ -793,6 +847,34 @@ void *Sort_Kmers(HITS_DB *block, int *len)
       for (i = 0; i < NTHREADS; i++)
         pthread_join(threads[i],NULL);
     }
+    else if(VALIDATE_KMERS){ // Keeping only valid kmers
+      if(rez == trg)
+          validated = src;
+      else
+          validated = trg;
+      
+      int valid_kmers_index = 0;
+      int kmers_validated = 0;
+      if(VALID_KMERS){
+        for(i = 0; i < kmers, valid_kmers_index < VALID_KMERS_COUNT; i++){
+          while(valid_kmers_index < VALID_KMERS_COUNT && rez[i].code > VALID_KMERS[valid_kmers_index++]);
+          if(rez[i].code == VALID_KMERS[valid_kmers_index]){
+            validated[kmers_validated++] = rez[i];
+          }
+        }
+      } else {
+        for(i = 0; i < kmers, valid_kmers_index < VALID_KMERS_COUNT; i++){
+          while(valid_kmers_index < VALID_KMERS_COUNT && rez[i].code > VALID_KMERS_LONG[valid_kmers_index++]);
+          if(rez[i].code == VALID_KMERS_LONG[valid_kmers_index]){
+            validated[kmers_validated++] = rez[i];
+          }
+        }
+      }
+      kmers = kmers_validated;
+      rez = validated;
+    }
+  
+  // Colocar alguma coisa aqui
 
   rez[kmers].code   = 0xffffffffffffffffllu;
   rez[kmers+1].code = 0;

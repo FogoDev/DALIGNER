@@ -21,6 +21,12 @@ extern int    HGAP_MIN;
 extern int    SYMMETRIC;
 extern int    IDENTITY;
 
+extern int VALIDATE_KMERS;
+extern unsigned* VALID_KMERS;
+extern unsigned long long* VALID_KMERS_LONG;
+extern size_t VALID_KMERS_SIZE;
+extern size_t VALID_KMERS_COUNT;
+
 extern uint64 MEM_LIMIT;
 extern uint64 MEM_PHYSICAL;
 
