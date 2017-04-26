@@ -716,10 +716,17 @@ int main(int argc, char *argv[])
   }
 
   MINOVER *= 2;
-  if (Set_Filter_Params(KMER_LEN,BIN_SHIFT,MAX_REPS,HIT_MIN,NTHREADS))
-    { fprintf(stderr,"Illegal combination of filter parameters\n");
-      exit (1);
-    }
+  if(VALIDATE_KMERS){
+      if (Set_Filter_Params(KMER_LEN,BIN_SHIFT,100,HIT_MIN,NTHREADS))
+      { fprintf(stderr,"Illegal combination of filter parameters\n");
+          exit (1);
+      }
+  } else {
+      if (Set_Filter_Params(KMER_LEN,BIN_SHIFT,MAX_REPS,HIT_MIN,NTHREADS))
+      { fprintf(stderr,"Illegal combination of filter parameters\n");
+          exit (1);
+      }
+  }
     
   // Checking if VALID_KMER_SIZE and KMER_LEN have the same value
   if(VALID_KMERS_SIZE && KMER_LEN != VALID_KMERS_SIZE){

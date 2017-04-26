@@ -609,18 +609,30 @@ typedef struct
     int validEnd;
   } Comp_Arg;
 
+static int KMERS_VALIDOS = 0; // For debug purposes
+
 int kmer_test(uint64 kmer, Comp_Arg* data, int* index)
 {
   if(VALID_KMERS){
-      if(kmer > VALID_KMERS[*index]) {
-          while(*index <= data->validEnd && kmer > VALID_KMERS[*index++]);
+      uint64 varm = VALID_KMERS[*index]; // For debug purposes
+      if(kmer > varm) {
+          while(*index <= data->validEnd && kmer > VALID_KMERS[*index]){
+              ++(*index);
+              varm = VALID_KMERS[*index];
+          }
       }
-      if(kmer == VALID_KMERS[*index])
+      varm = VALID_KMERS[*index];
+      if(kmer == VALID_KMERS[*index]){
+          ++KMERS_VALIDOS; // For debug purposes
           return 1;
+    
+      }
       return 0;
   } else {
       if(kmer > VALID_KMERS_LONG[*index]) {
-          while(*index <= data->validEnd && kmer > VALID_KMERS_LONG[*index++]);
+          while(*index <= data->validEnd && kmer > VALID_KMERS_LONG[*index]){
+              ++(*index);
+          }
       }
       if(kmer == VALID_KMERS_LONG[*index])
           return 1;
@@ -643,7 +655,8 @@ static void *compsize_thread(void *arg)
     { p = i++;
       while ((g = src[i].code) == h)
         i += 1;
-      if ((c = (i-p)) < TooFrequent && kmer_test(h, data, &valid_kmers_index))
+        int test = kmer_test(h, data, &valid_kmers_index);
+      if ((c = (i-p)) < TooFrequent && test)
         n += c;
       h = g;
     }
@@ -784,16 +797,21 @@ void *Sort_Kmers(HITS_DB *block, int *len)
     
         if(VALIDATE_KMERS){
             // Steps to calculate the indexes in the list of valid kmers
+            // Ajustando as fronteiras dos Kmers válidos para não ter Kmers perdidos entre threads diferentes
             parmf[0].validBegin = 0;
             if(VALID_KMERS){
                 for(i = 1; i < NTHREADS; i++){
                     x = (((int64) i)* VALID_KMERS_COUNT) >> NSHIFT;
                     h = rez[parmf[i-1].end].code;
                     if(h < VALID_KMERS[x]) {
-                        while(h < VALID_KMERS[x--]);
+                        while(h < VALID_KMERS[x]){
+                            --x;
+                        };
                     }
                     if(h > VALID_KMERS[x]) {
-                        while(h > VALID_KMERS[x++]);
+                        while(h > VALID_KMERS[x]){
+                            ++x;
+                        }
                     }
                     parmf[i-1].validEnd = parmf[i].validBegin = x;
                 }
@@ -847,33 +865,6 @@ void *Sort_Kmers(HITS_DB *block, int *len)
       for (i = 0; i < NTHREADS; i++)
         pthread_join(threads[i],NULL);
     }
-    else if(VALIDATE_KMERS){ // Keeping only valid kmers
-      if(rez == trg)
-          validated = src;
-      else
-          validated = trg;
-      
-      int valid_kmers_index = 0;
-      int kmers_validated = 0;
-      if(VALID_KMERS){
-        for(i = 0; i < kmers, valid_kmers_index < VALID_KMERS_COUNT; i++){
-          while(valid_kmers_index < VALID_KMERS_COUNT && rez[i].code > VALID_KMERS[valid_kmers_index++]);
-          if(rez[i].code == VALID_KMERS[valid_kmers_index]){
-            validated[kmers_validated++] = rez[i];
-          }
-        }
-      } else {
-        for(i = 0; i < kmers, valid_kmers_index < VALID_KMERS_COUNT; i++){
-          while(valid_kmers_index < VALID_KMERS_COUNT && rez[i].code > VALID_KMERS_LONG[valid_kmers_index++]);
-          if(rez[i].code == VALID_KMERS_LONG[valid_kmers_index]){
-            validated[kmers_validated++] = rez[i];
-          }
-        }
-      }
-      kmers = kmers_validated;
-      rez = validated;
-    }
-  
   // Colocar alguma coisa aqui
 
   rez[kmers].code   = 0xffffffffffffffffllu;
@@ -919,6 +910,8 @@ void *Sort_Kmers(HITS_DB *block, int *len)
         fprintf(stderr," desired memory allocation (%.1fGb)\n",(1.*MEM_LIMIT)/0x40000000ll);
       fflush(stderr);
     }
+  printf("Kmers válidos %d\n", KMERS_VALIDOS);
+    KMERS_VALIDOS = 0;
 
   *len = kmers;
   return (rez);
